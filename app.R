@@ -1,0 +1,763 @@
+# Instalación de paquetes
+# Lista de paquetes necesarios
+packages <- c("shiny", "shinythemes", "dplyr", "DT", "ggplot2", "plotly", "tidyverse", "rsconnect", "shinydashboard", "shinyWidgets", "bslib", "shinyjs")
+
+# Función para instalar paquetes si no están instalados
+install_if_missing <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package, dependencies = TRUE)
+    library(package, character.only = TRUE)
+  }
+}
+
+# Instalar y cargar todos los paquetes necesarios
+sapply(packages, install_if_missing)
+
+library(shiny)
+library(shinythemes)
+library(dplyr)
+library(DT)
+library(ggplot2)
+library(plotly)
+library(tidyverse)
+library(rsconnect)
+library(shinyWidgets)
+library(bslib)
+
+# FUNCIÓN 1: Detectar separador automáticamente
+detect_separator <- function(file_path, n_lines = 5) {
+  # Leer las primeras líneas del archivo
+  lines <- readLines(file_path, n = n_lines, warn = FALSE)
+  
+  # Posibles separadores
+  separators <- c(";", ",", "\t", "|")
+  separator_counts <- sapply(separators, function(sep) {
+    mean(sapply(lines, function(line) length(unlist(strsplit(line, sep, fixed = TRUE)))))
+  })
+  
+  # Retornar el separador que produce más columnas consistentemente
+  return(names(separator_counts)[which.max(separator_counts)])
+}
+
+# FUNCIÓN 2: Detectar y convertir formato de fecha automáticamente
+detect_and_convert_dates <- function(df) {
+  # Patrones de fecha comunes
+  date_patterns <- c(
+    "%Y-%m-%d",    # 2024-01-15
+    "%d/%m/%Y",    # 15/01/2024
+    "%m/%d/%Y",    # 01/15/2024
+    "%d-%m-%Y",    # 15-01-2024
+    "%m-%d-%Y",    # 01-15-2024
+    "%Y/%m/%d",    # 2024/01/15
+    "%d.%m.%Y",    # 15.01.2024
+    "%Y.%m.%d",    # 2024.01.15
+    "%d-%b-%Y",    # 15-Jan-2024
+    "%b-%d-%Y"     # Jan-15-2024
+  )
+  
+  # Función para intentar convertir fecha
+  try_date_conversion <- function(x, patterns) {
+    for (pattern in patterns) {
+      result <- try(as.Date(x, format = pattern), silent = TRUE)
+      if (!inherits(result, "try-error") && !all(is.na(result))) {
+        return(result)
+      }
+    }
+    return(x)  # Si no se puede convertir, retornar original
+  }
+  
+  # Detectar columnas que parecen fechas por nombre
+  potential_date_cols <- grep("fecha|date|dia|day", names(df), ignore.case = TRUE)
+  
+  # Convertir columnas de fecha
+  for (col_idx in potential_date_cols) {
+    if (is.character(df[[col_idx]]) || is.factor(df[[col_idx]])) {
+      converted <- try_date_conversion(as.character(df[[col_idx]]), date_patterns)
+      if (inherits(converted, "Date")) {
+        df[[col_idx]] <- converted
+      }
+    }
+  }
+  
+  return(df)
+}
+
+# CSS personalizado para mejorar la apariencia
+custom_css <- "
+  .main-header {
+    background: linear-gradient(135deg, #2E8B57, #228B22);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+  
+  .info-card {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border-left: 4px solid #28a745;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  
+  .upload-section {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+  }
+  
+  .process-section {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+    margin: 20px 0;
+  }
+  
+  .download-section {
+    background: linear-gradient(135deg, #28a745, #155724);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin: 20px 0;
+  }
+  
+  .status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+  }
+  
+  .status-ready { background-color: #28a745; }
+  .status-waiting { background-color: #ffc107; }
+  .status-error { background-color: #dc3545; }
+  
+  .feature-icon {
+    font-size: 24px;
+    color: #28a745;
+    margin-right: 10px;
+  }
+  
+  .nav-tabs .nav-link.active {
+    background-color: #28a745 !important;
+    border-color: #28a745 !important;
+    color: white !important;
+  }
+  
+  .nav-tabs .nav-link {
+    color: #28a745;
+    border: 1px solid #28a745;
+    margin-right: 5px;
+    border-radius: 8px 8px 0 0;
+  }
+  
+  .nav-tabs .nav-link:hover {
+    background-color: #e8f5e8;
+  }
+"
+
+# Definición de la interfaz de usuario
+ui <- fluidPage(
+  # Tema moderno
+  theme = bs_theme(
+    version = 5,
+    bg = "#f8f9fa",
+    fg = "#212529",
+    primary = "#28a745",
+    secondary = "#6c757d",
+    success = "#28a745",
+    info = "#17a2b8",
+    warning = "#ffc107",
+    danger = "#dc3545",
+    base_font = font_google("Inter"),
+    heading_font = font_google("Poppins", wght = "600")
+  ),
+  
+  # CSS personalizado
+  tags$head(
+    tags$style(HTML(custom_css)),
+    tags$link(rel = "stylesheet", href = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  ),
+  
+  # Header principal
+  div(class = "main-header",
+      fluidRow(
+        column(8,
+               h1(HTML('<i class="fas fa-tint"></i> Water & Crops'), 
+                  style = "margin: 0; font-weight: 600;"),
+               h4("Sistema de Análisis de Necesidades Hídricas", 
+                  style = "margin: 5px 0 0 0; opacity: 0.9; font-weight: 300;"),
+               p("Aplicación desarrollada en el marco del proyecto LAIcKA (2025 v2.0)", 
+                 style = "margin: 10px 0 0 0; font-size: 14px; opacity: 0.8;")
+        ),
+        column(4,
+               div(style = "text-align: right;",
+                   img(src = "NH.png", height = "120px", width = "120px", 
+                       style = "margin-bottom: 10px;"),
+                   br(),
+                   div(style = "display: flex; align-items: center; justify-content: flex-end;",
+                       img(src = "cita.png", height = "60px", width = "120px"),
+                       div(style = "margin-left: 15px; text-align: left;",
+                           p("Desarrollado por:", style = "margin: 0; font-size: 12px; opacity: 0.8;"),
+                           p("MsC. Alexey Valero-Jorge", style = "margin: 0; font-size: 14px; font-weight: 500;")
+                       )
+                   )
+               )
+        )
+      )
+  ),
+  
+  # Información sobre la aplicación
+  fluidRow(
+    column(12,
+           div(class = "info-card",
+               h5(HTML('<i class="fas fa-info-circle feature-icon"></i>¿Qué hace esta aplicación?')),
+               p("Esta herramienta calcula automáticamente las necesidades hídricas de cultivos basándose en datos meteorológicos y características específicas de cada cultivo. Procesa archivos CSV y genera análisis completos con visualizaciones interactivas.")
+           )
+    )
+  ),
+  
+  # Layout principal
+  fluidRow(
+    # Panel lateral
+    column(4,
+           # Sección de carga de archivos
+           div(class = "upload-section",
+               h4(HTML('<i class="fas fa-upload"></i> Carga de Datos'), 
+                  style = "color: #495057; margin-bottom: 20px;"),
+               
+               # Estado de los archivos
+               div(id = "file_status",
+                   div(style = "margin-bottom: 15px;",
+                       span(class = "status-indicator status-waiting", id = "cultivos_status"),
+                       strong("Archivo de Cultivos"),
+                       br(),
+                       tags$small("Formato: CSV con datos de cultivos", style = "color: #6c757d;")
+                   ),
+                   div(style = "margin-bottom: 15px;",
+                       span(class = "status-indicator status-waiting", id = "meteo_status"),
+                       strong("Archivo Meteorológico"),
+                       br(),
+                       tags$small("Formato: CSV con datos meteorológicos", style = "color: #6c757d;")
+                   )
+               ),
+               
+               # Inputs de archivos
+               fileInput("cultivos_file", 
+                         label = NULL,
+                         buttonLabel = HTML('<i class="fas fa-seedling"></i> Seleccionar Cultivos'),
+                         placeholder = "Ningún archivo seleccionado",
+                         accept = ".csv"),
+               
+               fileInput("meteo_file", 
+                         label = NULL,
+                         buttonLabel = HTML('<i class="fas fa-cloud-sun"></i> Seleccionar Meteorología'),
+                         placeholder = "Ningún archivo seleccionado",
+                         accept = ".csv")
+           ),
+           
+           # Sección de procesamiento
+           div(class = "process-section",
+               h4(HTML('<i class="fas fa-cogs"></i> Procesamiento')),
+               p("Una vez cargados ambos archivos, procese los datos para generar los análisis.", 
+                 style = "margin-bottom: 20px; opacity: 0.9;"),
+               actionButton("process", 
+                            HTML('<i class="fas fa-play"></i> Procesar Datos'), 
+                            class = "btn-light btn-lg",
+                            style = "width: 100%; font-weight: 600;")
+           ),
+           
+           # Sección de descargas
+           div(class = "download-section",
+               h4(HTML('<i class="fas fa-download"></i> Descargas')),
+               
+               div(style = "margin-bottom: 20px;",
+                   h6("Datos:", style = "margin-bottom: 10px; opacity: 0.9;"),
+                   downloadButton("download_data", 
+                                  HTML('<i class="fas fa-table"></i> Resultados Completos'), 
+                                  class = "btn-light btn-sm",
+                                  style = "width: 100%; margin-bottom: 5px;"),
+                   downloadButton("download_kc", 
+                                  HTML('<i class="fas fa-chart-line"></i> Tabla Kc'), 
+                                  class = "btn-light btn-sm",
+                                  style = "width: 100%; margin-bottom: 5px;"),
+                   downloadButton("download_NH", 
+                                  HTML('<i class="fas fa-tint"></i> Tabla NH (mm)'), 
+                                  class = "btn-light btn-sm",
+                                  style = "width: 100%; margin-bottom: 15px;")
+               ),
+               
+               div(
+                 h6("Gráfico:", style = "margin-bottom: 10px; opacity: 0.9;"),
+                 fluidRow(
+                   column(6, numericInput("plot_width", "Ancho:", value = 6000, min = 500, step = 100)),
+                   column(6, numericInput("plot_height", "Alto:", value = 2500, min = 500, step = 100))
+                 ),
+                 numericInput("plot_dpi", "DPI:", value = 300, min = 50, step = 50),
+                 downloadButton("download_plot", 
+                                HTML('<i class="fas fa-image"></i> Descargar Gráfico'), 
+                                class = "btn-light btn-sm",
+                                style = "width: 100%;")
+               )
+           )
+    ),
+    
+    # Panel principal
+    column(8,
+           # Pestañas de resultados
+           tabsetPanel(
+             id = "main_tabs",
+             type = "tabs",
+             
+             tabPanel(
+               title = HTML('<i class="fas fa-table"></i> Resultados'),
+               value = "resultados",
+               br(),
+               div(
+                 h4("Resultados del Procesamiento", style = "color: #495057;"),
+                 p("Tabla completa con todos los cálculos de necesidades hídricas por cultivo y fecha.", 
+                   style = "color: #6c757d; margin-bottom: 20px;"),
+                 DTOutput("results")
+               )
+             ),
+             
+             tabPanel(
+               title = HTML('<i class="fas fa-chart-area"></i> NH (mm)'),
+               value = "nh_plot",
+               br(),
+               div(
+                 h4("Necesidades Hídricas en mm", style = "color: #495057;"),
+                 p("Visualización temporal de las necesidades hídricas por cultivo expresadas en milímetros.", 
+                   style = "color: #6c757d; margin-bottom: 20px;"),
+                 plotlyOutput("plot", height = "500px")
+               )
+             ),
+             
+             tabPanel(
+               title = HTML('<i class="fas fa-seedling"></i> Coeficientes Kc'),
+               value = "kc_table",
+               br(),
+               div(
+                 h4("Tabla de Coeficientes de Cultivo", style = "color: #495057;"),
+                 p("Valores de Kc para cada cultivo a lo largo del tiempo, organizados por fecha.", 
+                   style = "color: #6c757d; margin-bottom: 20px;"),
+                 DTOutput("kc_table")
+               )
+             ),
+             
+             tabPanel(
+               title = HTML('<i class="fas fa-chart-line"></i> Gráfico Kc'),
+               value = "kc_plot",
+               br(),
+               div(
+                 h4("Evolución de Coeficientes de Cultivo", style = "color: #495057;"),
+                 p("Curvas de evolución de los coeficientes Kc durante los ciclos de cultivo.", 
+                   style = "color: #6c757d; margin-bottom: 20px;"),
+                 plotlyOutput("plot_1", height = "500px")
+               )
+             ),
+             
+             tabPanel(
+               title = HTML('<i class="fas fa-tint"></i> NH (mm) Tabla'),
+               value = "nh_table",
+               br(),
+               div(
+                 h4("Necesidades Hídricas por Fecha", style = "color: #495057;"),
+                 p("Tabla detallada de necesidades hídricas en mm organizadas por fecha y cultivo.", 
+                   style = "color: #6c757d; margin-bottom: 20px;"),
+                 DTOutput("NH_table")
+               )
+             ),
+             
+             tabPanel(
+               title = HTML('<i class="fas fa-water"></i> NH (m³)'),
+               value = "nh_m3",
+               br(),
+               div(
+                 h4("Necesidades Hídricas en m³", style = "color: #495057;"),
+                 p("Visualización de las necesidades hídricas totales expresadas en metros cúbicos.", 
+                   style = "color: #6c757d; margin-bottom: 20px;"),
+                 plotlyOutput("plot_2", height = "500px")
+               )
+             )
+           )
+    )
+  ),
+  
+  # Footer informativo
+  br(),
+  div(style = "background: #e9ecef; padding: 20px; border-radius: 10px; margin-top: 30px;",
+      fluidRow(
+        column(4,
+               h6(HTML('<i class="fas fa-lightbulb"></i> Características:'), style = "color: #495057;"),
+               tags$ul(
+                 tags$li("Detección automática de separadores CSV"),
+                 tags$li("Conversión automática de formatos de fecha"),
+                 tags$li("Cálculos precisos de Kc y NH"),
+                 tags$li("Visualizaciones interactivas")
+               )
+        ),
+        column(4,
+               h6(HTML('<i class="fas fa-file-csv"></i> Formatos Soportados:'), style = "color: #495057;"),
+               tags$ul(
+                 tags$li("CSV con separadores: , ; | \\t"),
+                 tags$li("Fechas en múltiples formatos"),
+                 tags$li("Codificación automática"),
+                 tags$li("Headers automáticos")
+               )
+        ),
+        column(4,
+               h6(HTML('<i class="fas fa-chart-bar"></i> Análisis Incluidos:'), style = "color: #495057;"),
+               tags$ul(
+                 tags$li("Series temporales de NH"),
+                 tags$li("Evolución de coeficientes Kc"),
+                 tags$li("Análisis por cultivo"),
+                 tags$li("Exportación de resultados")
+               )
+        )
+      )
+  )
+)
+
+# Definición del servidor (manteniendo toda la lógica original)
+server <- function(input, output, session) {
+  resultados <- reactiveVal()
+  
+  # Actualizar indicadores de estado de archivos
+  observeEvent(input$cultivos_file, {
+    if (!is.null(input$cultivos_file)) {
+      runjs("document.getElementById('cultivos_status').className = 'status-indicator status-ready';")
+    }
+  })
+  
+  observeEvent(input$meteo_file, {
+    if (!is.null(input$meteo_file)) {
+      runjs("document.getElementById('meteo_status').className = 'status-indicator status-ready';")
+    }
+  })
+  
+  observeEvent(input$process, {
+    req(input$cultivos_file, input$meteo_file)
+    
+    # Mostrar progreso
+    showModal(modalDialog(
+      title = "Procesando datos...",
+      div(style = "text-align: center;",
+          HTML('<i class="fas fa-spinner fa-spin fa-3x"></i>'),
+          br(), br(),
+          "Por favor espere mientras se procesan los archivos..."
+      ),
+      footer = NULL,
+      easyClose = FALSE
+    ))
+    
+    # Detectar separadores automáticamente y leer los archivos CSV
+    cultivos_sep <- detect_separator(input$cultivos_file$datapath)
+    meteo_sep <- detect_separator(input$meteo_file$datapath)
+    
+    cultivos <- read.csv(input$cultivos_file$datapath, sep = cultivos_sep, header = TRUE)
+    meteo <- read.csv(input$meteo_file$datapath, sep = meteo_sep, header = TRUE)
+    
+    # Detectar y convertir formatos de fecha automáticamente
+    cultivos <- detect_and_convert_dates(cultivos)
+    meteo <- detect_and_convert_dates(meteo)
+    
+    # Procesar datos...
+    cultivos$KcD <- round(as.numeric(cultivos$KcD), digits = 3)
+    cultivos$Dia.I1 <- as.numeric(cultivos$Dia.I1)
+    cultivos$Dia.I2 <- as.numeric(cultivos$Dia.I2)
+    cultivos$Dia.M1 <- as.numeric(cultivos$Dia.M1)
+    cultivos$Dia.M2 <- as.numeric(cultivos$Dia.M2)
+    cultivos$Dia.F <- as.numeric(cultivos$Dia.F)
+    
+    cultivos$Fecha.I1 <- as.Date(cultivos$Fecha.I1)
+    cultivos$Fecha.I2 <- as.Date(cultivos$Fecha.I2)
+    cultivos$Fecha.M1 <- as.Date(cultivos$Fecha.M1)
+    cultivos$Fecha.M2 <- as.Date(cultivos$Fecha.M2)
+    cultivos$Fecha.F <- as.Date(cultivos$Fecha.F)
+    
+    meteo$Fecha <- as.Date(meteo$Fecha)
+    
+    # Crear una lista vacía para almacenar los data frames de cada cultivo
+    dfs_cultivos <- list()
+    
+    for (cultivo in unique(cultivos$CULTIVO)) {
+      Cultivo1 <- cultivos[cultivos$CULTIVO == cultivo, ]
+      
+      # Calcular fechas y días del cultivo
+      Inicio1 <- as.Date(Cultivo1$Fecha.I1)
+      AInicio1 <- as.numeric(format(Inicio1, '%Y'))
+      Inicio2 <- as.Date(Cultivo1$Fecha.I2)
+      AInicio2 <- as.numeric(format(Inicio2, '%Y'))
+      Mediados1 <- as.Date(Cultivo1$Fecha.M1)
+      AMediados1 <- as.numeric(format(Mediados1, '%Y'))
+      Mediados2 <- as.Date(Cultivo1$Fecha.M2)
+      AMediados2 <- as.numeric(format(Mediados2, '%Y'))
+      Fin <- as.Date(Cultivo1$Fecha.F)
+      AFin <- as.numeric(format(Fin, '%Y'))
+      
+      DCInicio1 <- AInicio1 * 1000 + Cultivo1$Dia.I1
+      DCInicio2 <- AInicio2 * 1000 + Cultivo1$Dia.I2
+      DCMediados1 <- AMediados1 * 1000 + Cultivo1$Dia.M1
+      DCMediados2 <- AMediados2 * 1000 + Cultivo1$Dia.M2
+      DCFin <- AFin * 1000 + Cultivo1$Dia.F
+      
+      # Calcular la fase y coeficientes de cultivo
+      MeteoD <- mutate(meteo, D = meteo$Ano * 1000 + meteo$Dia)
+      MeteoF <- mutate(MeteoD, FASE = if_else(D >= DCInicio1 & D < DCInicio2, "INICIO",
+                                              if_else(D >= DCInicio2 & D < DCMediados1, "DESARROLLO",
+                                                      if_else(D >= DCMediados1 & D < DCMediados2, "MEDIADOS",
+                                                              if_else(D >= DCMediados2 & D <= DCFin, "FINAL",
+                                                                      "SIN_CULTIVO")))))
+      
+      # Asegurarse de que KcI, KcD, KcM, KcF1 sean numéricas
+      KcI <- as.numeric(Cultivo1$KcI)
+      #### Calcular p1
+      # Calcular p1 como un valor único
+      if ((DCMediados1 - DCInicio2) >366) {
+        p1 <- (Cultivo1$KcM - Cultivo1$KcI) / (DCMediados1 - (DCInicio2+634))
+      } else {
+        p1 <- (Cultivo1$KcM - Cultivo1$KcI) / (DCMediados1 - DCInicio2)
+      }
+      
+      KcM <- as.numeric(Cultivo1$KcM)
+      #### Calcular p2
+      if ((DCFin  - DCMediados2)>366) {
+        p2 <- (Cultivo1$KcF2 - Cultivo1$KcM) / (DCFin - (DCMediados2+634))
+      } else {
+        p2 <- (Cultivo1$KcF2 - Cultivo1$KcM) / (DCFin - DCMediados2)
+      }
+      
+      
+      MeteoKc <- mutate(MeteoF, Kc=if_else (FASE=='INICIO',Cultivo1$KcI,
+                                            if_else(FASE=='DESARROLLO',
+                                                    ((if_else(D-DCInicio2>366,(D-(DCInicio2+634)), D-DCInicio2))*p1)+Cultivo1$KcI,
+                                                    if_else(FASE=='MEDIADOS',Cultivo1$KcM,
+                                                            if_else(FASE=='FINAL',((D-DCMediados2)*p2)+Cultivo1$KcM,
+                                                                    0)))))
+      MeteoKc$Kc <- round(MeteoKc$Kc, digits = 3)
+      
+      # Calcular necesidades hídricas
+      NHCultivo <- mutate(MeteoKc, NHn_mm = if_else(Kc > 0, (Kc * Eto_mm) - Pe_mm, 0))
+      NHCultivo <- mutate(NHCultivo, NHn_m3 = if_else(NHn_mm > 0, Cultivo1$SUP_ha * 10000 * NHn_mm / 1000, 0))
+      NHCultivo[, 10:11] <- round(NHCultivo[, 10:11], digits = 2)
+      
+      # Agregar el data frame a la lista
+      dfs_cultivos[[cultivo]] <- NHCultivo
+    }
+    
+    # Combinar resultados en un solo data frame
+    resultados_df <- bind_rows(dfs_cultivos, .id = "CULTIVO")
+    resultados(resultados_df)
+    
+    # Cerrar modal de progreso
+    removeModal()
+    
+    # Mostrar mensaje de éxito
+    showNotification(
+      "¡Datos procesados exitosamente!",
+      type = "message",
+      duration = 3
+    )
+  })
+  
+  output$results <- renderDT({
+    req(resultados())
+    datatable(
+      resultados(), 
+      options = list(
+        pageLength = 25, 
+        autoWidth = TRUE,
+        scrollX = TRUE,
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv', 'excel')
+      ),
+      extensions = 'Buttons',
+      class = 'cell-border stripe hover'
+    )
+  })
+  
+  # Definición de kc_df como reactiva
+  kc_df <- reactive({
+    req(resultados())
+    resultados() %>%
+      select(Fecha, CULTIVO, Kc) %>%
+      pivot_wider(names_from = CULTIVO, values_from = Kc)
+  })
+  
+  output$kc_table <- renderDT({
+    req(kc_df())
+    datatable(
+      kc_df(), 
+      options = list(
+        pageLength = 25, 
+        autoWidth = TRUE,
+        scrollX = TRUE,
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv', 'excel')
+      ),
+      extensions = 'Buttons',
+      class = 'cell-border stripe hover'
+    )
+  })
+  
+  # Definición de NH_df como reactiva
+  NH_df <- reactive({
+    req(resultados())
+    resultados() %>%
+      select(Fecha, CULTIVO, NHn_mm) %>%
+      pivot_wider(names_from = CULTIVO, values_from = NHn_mm)
+  })
+  
+  output$NH_table <- renderDT({
+    req(NH_df())
+    datatable(
+      NH_df(), 
+      options = list(
+        pageLength = 25, 
+        autoWidth = TRUE,
+        scrollX = TRUE,
+        dom = 'Bfrtip',
+        buttons = c('copy', 'csv', 'excel')
+      ),
+      extensions = 'Buttons',
+      class = 'cell-border stripe hover'
+    )
+  })
+  
+  output$plot <- renderPlotly({
+    req(resultados())
+    p <- ggplot(filter(resultados(), NHn_mm > 0), aes(x = Fecha, y = NHn_mm, color = CULTIVO)) +
+      geom_line(size=0.8, alpha=0.8) +
+      geom_point(size=1.5, alpha=0.7) +
+      labs(title = "SERIES TEMPORALES DE NECESIDADES HÍDRICAS",
+           x = "Fecha",
+           y = "Necesidad Hídrica (mm)",
+           color = "Cultivo") +
+      scale_x_date(date_breaks = "2 month", date_labels = "%b %Y") +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(size = 16, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom"
+      )
+    
+    ggplotly(p) %>%
+      layout(
+        title = list(text = "SERIES TEMPORALES DE NECESIDADES HÍDRICAS", x = 0.1),
+        legend = list(orientation = "h", x = 0.1, y = -0.2)
+      )
+  })
+  
+  output$plot_1 <- renderPlotly({
+    req(resultados())
+    p <- ggplot(filter(resultados(), Kc > 0), aes(x = Fecha, y = Kc, color = CULTIVO)) +
+      geom_line(size = 0.8, alpha = 0.8) +
+      geom_point(size = 1.5, alpha = 0.7) +
+      labs(title = "CICLOS DE CULTIVOS",
+           x = "Fecha",
+           y = "Coeficiente del cultivo (Kc)",
+           color = "Cultivo") +
+      scale_x_date(date_breaks = "2 month", date_labels = "%b %Y") +
+      scale_y_continuous(limits = c(0, 1.2), breaks = seq(0, 1.2, by = 0.2)) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(size = 16, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom"
+      )
+    
+    ggplotly(p) %>%
+      layout(
+        title = list(text = "CICLOS DE CULTIVOS", x = 0.1),
+        legend = list(orientation = "h", x = 0.1, y = -0.2)
+      )
+  })
+  
+  output$plot_2 <- renderPlotly({
+    req(resultados())
+    p <- ggplot(filter(resultados(), NHn_m3 >= 0), aes(x = Fecha, y = NHn_m3, color = CULTIVO)) +
+      geom_line(size=0.8, alpha=0.8) +
+      geom_point(size=1.5, alpha=0.7) +
+      labs(title = "SERIES TEMPORALES DE NECESIDADES HÍDRICAS",
+           x = "Fecha",
+           y = "Necesidad Hídrica (m³)",
+           color = "Cultivo") +
+      scale_x_date(date_breaks = "2 month", date_labels = "%b %Y") +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(size = 16, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom"
+      )
+    
+    ggplotly(p) %>%
+      layout(
+        title = list(text = "SERIES TEMPORALES DE NECESIDADES HÍDRICAS (m³)", x = 0.1),
+        legend = list(orientation = "h", x = 0.1, y = -0.2)
+      )
+  })
+  
+  output$download_plot <- downloadHandler(
+    filename = function() {
+      paste("grafico_necesidades_hidricas_", Sys.Date(), ".png", sep = "")
+    },
+    content = function(file) {
+      png(file, width = input$plot_width, height = input$plot_height, res = input$plot_dpi)
+      print(ggplot(filter(resultados(), NHn_mm > 0), aes(x = Fecha, y = NHn_mm, color = CULTIVO)) +
+              geom_line(size=0.8, alpha=0.8) +
+              geom_point(size=1.5, alpha=0.7) +
+              labs(title = "SERIES TEMPORALES DE NECESIDADES HÍDRICAS",
+                   x = "Fecha",
+                   y = "Necesidad Hídrica (mm)",
+                   color = "Cultivo") +
+              scale_x_date(date_breaks = "2 month", date_labels = "%b %Y") +
+              theme_minimal() +
+              theme(
+                plot.title = element_text(size = 16, face = "bold"),
+                axis.text.x = element_text(angle = 45, hjust = 1),
+                legend.position = "bottom",
+                panel.background = element_rect(fill = "white"),
+                plot.background = element_rect(fill = "white")
+              ))
+      dev.off()
+    }
+  )
+  
+  output$download_data <- downloadHandler(
+    filename = function() {
+      paste("resultados_necesidades_hidricas_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(resultados(), file, row.names = FALSE)
+    }
+  )
+  
+  output$download_kc <- downloadHandler(
+    filename = function() {
+      paste("tabla_kc_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(kc_df(), file, row.names = FALSE)
+    }
+  )
+  
+  output$download_NH <- downloadHandler(
+    filename = function() {
+      paste("tabla_NH_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(NH_df(), file, row.names = FALSE)
+    }
+  )
+}
+
+# Ejecutar la aplicación
+shinyApp(ui = ui, server = server)
